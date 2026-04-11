@@ -2,6 +2,7 @@ import json
 import os
 import time
 import uuid
+from typing import Optional
 
 import redis.asyncio as aioredis
 from fastapi import FastAPI, HTTPException
@@ -10,9 +11,16 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from agent.loop import run_agent
+from memory.categories import (
+    PROFILE_CATEGORIES,
+    PROJECT_CATEGORIES,
+    WORKFLOW_CATEGORIES,
+)
 from memory.contradiction import resolve_contradiction
 from memory.decay import calculate_current_confidence
-from memory.episodic import retrieve_memories
+from memory.episodic import add_memory, retrieve_memories
+from memory.extractor import extract_facts
+from memory.models import MemoryEntry
 from memory.working import get_working_memory
 
 app = FastAPI(title="Temporal Memory OS")
@@ -35,11 +43,6 @@ class ChatRequest(BaseModel):
 
 import os
 from fastapi.staticfiles import StaticFiles
-
-# Setup React Frontend distribution serving
-if os.path.exists("frontend/dist"):
-    app.mount("/", StaticFiles(directory="frontend/dist", html=True), name="frontend")
-
 
 from memory.working import get_redis
 
@@ -202,3 +205,7 @@ async def get_contradictions(agent_id: str = DEFAULT_AGENT):
 async def resolve(event_id: str, chosen_fact: str, agent_id: str = DEFAULT_AGENT):
     await resolve_contradiction(event_id, chosen_fact, agent_id)
     return {"status": "resolved"}
+
+# Setup React Frontend distribution serving
+if os.path.exists("frontend/dist"):
+    app.mount("/", StaticFiles(directory="frontend/dist", html=True), name="frontend")
