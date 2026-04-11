@@ -97,7 +97,7 @@ export function ChatWindow({ sessionId, onMessageSent }: { sessionId: string, on
 
   return (
     <div className="flex flex-col h-full relative">
-      <div className="flex-1 overflow-y-auto p-4 sm:p-8 space-y-6 pb-40 scroll-smooth">
+      <div className="flex-1 overflow-y-auto p-4 sm:p-8 space-y-6 pb-48 scroll-smooth">
         {messages.map((msg, i) => (
           <motion.div 
             initial={{ opacity: 0, y: 10 }}

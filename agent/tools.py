@@ -76,6 +76,22 @@ MEMORY_TOOLS = [
             "additionalProperties": False,
         },
     },
+    {
+        "type": "function",
+        "name": "run_sandbox_command",
+        "description": "Execute a shell command inside an isolated Blaxel Sandbox environment. Use this to run scripts, fetch URLs via curl, or perform real-world actions for the user.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "command": {
+                    "type": "string",
+                    "description": "The shell command to execute.",
+                }
+            },
+            "required": ["command"],
+            "additionalProperties": False,
+        },
+    },
 ]
 
 
@@ -134,5 +150,32 @@ async def handle_tool_call(tool_name: str, tool_args: dict, agent_id: str) -> di
             tool_args["event_id"], tool_args["chosen_fact"], agent_id
         )
         return {"status": "resolved"}
+
+    elif tool_name == "run_sandbox_command":
+        from sandbox.checkpoint import get_or_create_sandbox
+        try:
+            sandbox = await get_or_create_sandbox()
+            if not sandbox:
+                return {"error": "Blaxel sandbox not configured in this environment"}
+            
+            # Process exec might be synchronous or async depending on the SDK version, check safely
+            import inspect
+            process = sandbox.process.exec({"command": tool_args["command"]})
+            if inspect.iscoroutine(process):
+                process = await process
+                
+            wait_call = sandbox.process.wait(process.pid, max_wait=15000, interval=500)
+            if inspect.iscoroutine(wait_call):
+                process_result = await wait_call
+            else:
+                process_result = wait_call
+                
+            return {
+                "status": process_result.status,
+                "stdout": process_result.stdout,
+                "stderr": process_result.stderr
+            }
+        except Exception as e:
+            return {"error": str(e)}
 
     return {"error": f"Unknown tool: {tool_name}"}
