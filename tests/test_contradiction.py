@@ -37,7 +37,7 @@ async def test_check_contradiction_found(monkeypatch):
 
     mock_redis = AsyncMock()
     monkeypatch.setattr(
-        contradiction.aioredis, "from_url", AsyncMock(return_value=mock_redis)
+        "memory.working.get_redis", AsyncMock(return_value=mock_redis)
     )
 
     result = await contradiction.check_contradiction("new fact", "agent-1")
@@ -62,7 +62,7 @@ async def test_resolve_contradiction(monkeypatch):
     )
     mock_redis.get.return_value = event.model_dump_json()
     monkeypatch.setattr(
-        contradiction.aioredis, "from_url", AsyncMock(return_value=mock_redis)
+        "memory.working.get_redis", AsyncMock(return_value=mock_redis)
     )
 
     mock_update = AsyncMock()
