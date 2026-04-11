@@ -47,6 +47,13 @@ class IngestRequest(BaseModel):
     task_context: str = "unknown"
 
 
+class StoreRequest(BaseModel):
+    agent_id: str
+    content: str
+    category: str = "general"
+    source: str = "user_said"
+
+
 import os
 from fastapi.staticfiles import StaticFiles
 
@@ -196,6 +203,54 @@ async def memory_stats(agent_id: str = DEFAULT_AGENT):
                 memories, key=lambda x: calculate_current_confidence(x), reverse=True
             )
         ][:20],
+    }
+
+
+@app.post("/api/memory/store")
+async def memory_store(request: StoreRequest):
+    """
+    Directly store a single pre-formed memory fact (used by the MCP remember tool).
+    Bypasses LLM extraction — the content is stored exactly as provided.
+    Deduplication still applies.
+    """
+    from memory.categories import decay_rate_for, layer_for
+    if not request.content.strip():
+        raise HTTPException(status_code=400, detail="content is required")
+    layer = layer_for(request.category)
+    if layer == "working":
+        layer = "episodic"
+    mem = MemoryEntry(
+        agent_id=request.agent_id,
+        content=request.content.strip(),
+        layer=layer,
+        source=request.source,
+        category=request.category,
+        decay_rate=decay_rate_for(request.category),
+    )
+    memory_id = await add_memory(mem)
+    return {"status": "ok", "memory_id": memory_id, "category": request.category}
+
+
+@app.get("/api/memory/search")
+async def memory_search(query: str, agent_id: str = DEFAULT_AGENT, limit: int = 8):
+    """
+    Semantic vector search over episodic memories.
+    Used by the MCP recall tool for meaningful context retrieval.
+    """
+    limit = min(limit, 20)
+    memories = await retrieve_memories(query, agent_id, k=limit, min_confidence=0.05)
+    return {
+        "query": query,
+        "results": [
+            {
+                "content": m.content,
+                "category": m.category or "general",
+                "source": m.source,
+                "confidence": round(calculate_current_confidence(m), 3),
+                "age_hours": round((time.time() - m.created_at) / 3600, 1),
+            }
+            for m in memories
+        ],
     }
 
 

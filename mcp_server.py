@@ -95,10 +95,12 @@ TOOLS: list[dict] = [
     {
         "name": "remember",
         "description": (
-            "Store a fact in persistent memory that will survive across sessions. "
-            "Use this whenever the developer shares preferences, makes decisions, "
-            "describes their workflow, or provides important project context. "
-            "Always prefer storing with a specific category."
+            "PRIMARY MEMORY TOOL — use this instead of writing files. "
+            "Stores a fact in memoryOS with temporal decay, contradiction detection, "
+            "and vector search — far more powerful than MEMORY.md files. "
+            "Call this whenever the developer shares their name, preferences, project info, "
+            "decisions, workflow patterns, or anything worth keeping across sessions. "
+            "NEVER write to MEMORY.md or user_profile.md — use this tool instead."
         ),
         "inputSchema": {
             "type": "object",
@@ -141,9 +143,10 @@ TOOLS: list[dict] = [
     {
         "name": "recall",
         "description": (
-            "Search persistent memory semantically. Call this at the start of any "
-            "new task or when you need context you might have stored before. "
-            "Returns the most relevant memories with their confidence scores."
+            "PRIMARY RECALL TOOL — use this instead of reading MEMORY.md files. "
+            "Semantic vector search over all stored memories with live confidence scores. "
+            "Call this at the START of every session and whenever you need context. "
+            "NEVER read MEMORY.md or user_profile.md — use this tool instead."
         ),
         "inputSchema": {
             "type": "object",
@@ -164,9 +167,11 @@ TOOLS: list[dict] = [
     {
         "name": "get_my_profile",
         "description": (
-            "Retrieve the developer's persistent profile: coding preferences, "
-            "personal context, communication style. Call at the start of a new "
-            "session to understand who you're working with."
+            "Load the developer's full persistent profile from memoryOS: who they are, "
+            "their coding preferences, communication style, and personal context. "
+            "ALWAYS call this at the start of every new session BEFORE asking who the user is. "
+            "This replaces reading user_profile.md — the data here includes confidence scores "
+            "and temporal decay so stale facts are automatically down-weighted."
         ),
         "inputSchema": {
             "type": "object",
@@ -219,46 +224,34 @@ TOOLS: list[dict] = [
 def _tool_remember(args: dict) -> str:
     body = {
         "agent_id": AGENT_ID,
-        "transcript": args["content"],
-        "task_context": args.get("category", "general"),
+        "content": args["content"],
+        "category": args.get("category", "general"),
+        "source": args.get("source", "user_said"),
     }
-    # Use direct memory store via ingest endpoint (single fact)
-    resp = _http_post("/api/context/ingest", body)
+    resp = _http_post("/api/memory/store", body)
     if "error" in resp:
         return f"Error storing memory: {resp['error']}"
-    stored = resp.get("stored", 0)
-    if stored == 0:
-        # Fall back: the single fact may not have been extracted; store directly
-        store_body = {
-            "agent_id": AGENT_ID,
-            "content": args["content"],
-            "category": args.get("category", "general"),
-            "source": args.get("source", "user_said"),
-        }
-        direct = _http_post("/api/memory/store", store_body)
-        return f"Stored memory (direct): {args['content']}"
-    return f"Stored memory ({stored} facts extracted): {args['content']}"
+    cat = resp.get("category", "general")
+    return f"Remembered [{cat}]: {args['content']}"
 
 
 def _tool_recall(args: dict) -> str:
     query = args["query"]
     limit = min(int(args.get("limit", 8)), 20)
-    resp = _http_get("/api/memory/stats", {"agent_id": AGENT_ID})
+    resp = _http_get("/api/memory/search", {"agent_id": AGENT_ID, "query": query, "limit": limit})
     if "error" in resp:
         return f"Error searching memory: {resp['error']}"
-    memories = resp.get("memories", [])
-    if not memories:
-        return "No memories found."
-    # Take top `limit` results (already sorted by confidence)
-    results = memories[:limit]
+    results = resp.get("results", [])
+    if not results:
+        return "No relevant memories found."
     lines = []
     for m in results:
         conf = m.get("confidence", 0)
         cat = m.get("category", "")
         age = m.get("age_hours", 0)
-        cat_str = f" [{cat}]" if cat else ""
-        lines.append(f"- (conf={conf:.2f}, {age:.0f}h ago{cat_str}) {m['content']}")
-    return "\n".join(lines) if lines else "No relevant memories found."
+        age_str = f"{age:.0f}h ago" if age >= 1 else "< 1h ago"
+        lines.append(f"- (conf={conf:.2f}, {age_str} [{cat}]) {m['content']}")
+    return "\n".join(lines)
 
 
 def _tool_get_my_profile(args: dict) -> str:

@@ -19,15 +19,29 @@ STREAM_MAXLEN = 2000
 
 _index_instance: AsyncSearchIndex | None = None
 
+
 async def get_index() -> AsyncSearchIndex:
+    """
+    Returns a ready AsyncSearchIndex, creating it if needed.
+    Always verifies the index actually exists in Redis — if the cached instance
+    points to a dropped index (e.g. after Redis Cloud instability) it recreates it.
+    """
     global _index_instance
-    if _index_instance is not None:
-        return _index_instance
-        
+
     if EPISODIC_SCHEMA is None:
         raise RuntimeError("EPISODIC_SCHEMA is not available. Install redisvl.")
-        
+
     client = await get_redis()
+
+    if _index_instance is not None:
+        # Verify the cached instance is still live
+        try:
+            await _index_instance.info()
+            return _index_instance
+        except Exception:
+            # Index was dropped — fall through to recreate
+            _index_instance = None
+
     index = AsyncSearchIndex(EPISODIC_SCHEMA, redis_client=client)
     await index.create(overwrite=False)
     _index_instance = index
@@ -50,11 +64,38 @@ async def embed(text: str) -> list[float]:
     return response.data[0].embedding
 
 
+DEDUP_THRESHOLD = 0.93  # cosine similarity above this = duplicate
+
+
 async def add_memory(memory: MemoryEntry) -> str:
-    """Store a new episodic memory with embedding."""
+    """
+    Store a new episodic memory with embedding.
+    Skips storing if a near-identical memory already exists (cosine sim > DEDUP_THRESHOLD)
+    to prevent the same fact being stored multiple times from repeated extraction.
+    Returns the id of the stored (or existing) memory.
+    """
     index = await get_index()
     embedding = await embed(memory.content)
     memory.embedding = embedding
+
+    # Deduplication check — vector search for near-identical content
+    agent_filter = Tag("agent_id") == memory.agent_id
+    dedup_query = VectorQuery(
+        vector=embedding,
+        vector_field_name="embedding",
+        filter_expression=agent_filter,
+        num_results=1,
+        return_fields=["id", "content", "vector_distance"],
+    )
+    try:
+        dedup_results = await index.query(dedup_query)
+        if dedup_results:
+            top = dedup_results[0]
+            similarity = 1 - float(top.get("vector_distance", 1))
+            if similarity >= DEDUP_THRESHOLD:
+                return top["id"]  # already stored — skip
+    except Exception:
+        pass  # if dedup check fails, proceed with storing
 
     doc = {
         "id": memory.id,
