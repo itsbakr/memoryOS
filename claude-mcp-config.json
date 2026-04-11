@@ -1,0 +1,20 @@
+{
+  "_comment": "Drop this config into your Claude Code MCP settings to connect memoryOS.",
+  "_instructions": [
+    "1. Start the memoryOS backend: uvicorn api.server:app --port 8000",
+    "2. Add this block to ~/.claude/settings.json under 'mcpServers'",
+    "3. Update the absolute path to mcp_server.py below",
+    "4. Run: python scripts/sync_claude_md.py  (generates CLAUDE.md for passive injection)",
+    "5. Claude will now remember you across every session."
+  ],
+  "mcpServers": {
+    "memoryOS": {
+      "command": "/Users/ahmedbakr/Documents/Bakr Projects/memoryOS/.venv/bin/python",
+      "args": ["/Users/ahmedbakr/Documents/Bakr Projects/memoryOS/mcp_server.py"],
+      "env": {
+        "MEMORY_OS_URL": "http://localhost:8000",
+        "MEMORY_OS_AGENT_ID": "claude-code"
+      }
+    }
+  }
+}
