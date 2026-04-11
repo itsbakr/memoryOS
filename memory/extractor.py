@@ -56,10 +56,10 @@ Classify every fact into exactly ONE of these categories:
 - Return a JSON object with a "facts" array. NO explanation, NO markdown fences.
 
 === OUTPUT FORMAT ===
-{"facts": [
-  {"content": "...", "category": "...", "source": "user_said|agent_inferred|tool_result"},
+{{"facts": [
+  {{"content": "...", "category": "...", "source": "user_said|agent_inferred|tool_result"}},
   ...
-]}
+]}}
 
 === CONVERSATION TURN ===
 {conversation_turn}

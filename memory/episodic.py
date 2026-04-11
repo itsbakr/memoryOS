@@ -127,8 +127,13 @@ async def retrieve_memories(
 
     memories: list[tuple[MemoryEntry, float]] = []
     for r in results:
+        # RedisVL returns the full key in r["id"]. Strip prefix if present.
+        raw_id = r["id"]
+        if raw_id.startswith("mem:episodic:"):
+            raw_id = raw_id.replace("mem:episodic:", "", 1)
+
         mem = MemoryEntry(
-            id=r["id"],
+            id=raw_id,
             agent_id=agent_id,
             content=r["content"],
             layer="episodic",
