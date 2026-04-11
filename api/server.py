@@ -33,10 +33,12 @@ class ChatRequest(BaseModel):
     message: str
 
 
-@app.get("/", response_class=HTMLResponse)
-async def dashboard():
-    with open("dashboard/index.html") as f:
-        return f.read()
+import os
+from fastapi.staticfiles import StaticFiles
+
+# Setup React Frontend distribution serving
+if os.path.exists("frontend/dist"):
+    app.mount("/", StaticFiles(directory="frontend/dist", html=True), name="frontend")
 
 
 from memory.working import get_redis
@@ -45,7 +47,8 @@ from memory.working import get_redis
 async def create_session():
     """Create a new chat session."""
     session_id = str(uuid.uuid4())
-    agent_id = str(uuid.uuid4())
+    # Use a persistent agent_id so memory is shared across all chats for this user!
+    agent_id = DEFAULT_AGENT
     created_at = time.time()
     
     r = await get_redis()
