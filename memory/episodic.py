@@ -16,16 +16,28 @@ REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 STREAM_MAXLEN = 2000
 
 
+_index_instance: AsyncSearchIndex | None = None
+
 async def get_index() -> AsyncSearchIndex:
+    global _index_instance
+    if _index_instance is not None:
+        return _index_instance
+        
     if EPISODIC_SCHEMA is None:
         raise RuntimeError("EPISODIC_SCHEMA is not available. Install redisvl.")
     index = AsyncSearchIndex(EPISODIC_SCHEMA, redis_url=REDIS_URL)
     await index.create(overwrite=False)
+    _index_instance = index
     return index
 
 
+_redis_pool = None
+
 async def get_redis():
-    return aioredis.from_url(REDIS_URL, decode_responses=True)
+    global _redis_pool
+    if _redis_pool is None:
+        _redis_pool = aioredis.from_url(REDIS_URL, decode_responses=True)
+    return _redis_pool
 
 
 def _stream_key(agent_id: str) -> str:
@@ -76,7 +88,6 @@ async def _append_stream_event(memory: MemoryEntry) -> None:
         maxlen=STREAM_MAXLEN,
         approximate=True,
     )
-    await r.aclose()
 
 
 async def retrieve_memories(

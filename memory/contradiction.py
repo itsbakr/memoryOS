@@ -91,7 +91,8 @@ async def check_contradiction(
     )
 
     # Store in Redis for dashboard + API resolution
-    r = await aioredis.from_url(REDIS_URL, decode_responses=True)
+    from memory.working import get_redis
+    r = await get_redis()
     await r.setex(
         f"contradiction:{event.id}",
         3600,  # 1 hour TTL
@@ -99,17 +100,16 @@ async def check_contradiction(
     )
     await r.lpush(f"agent:{agent_id}:contradictions", event.id)
     await r.ltrim(f"agent:{agent_id}:contradictions", 0, 49)  # Keep last 50
-    await r.aclose()
 
     return event
 
 
 async def resolve_contradiction(event_id: str, chosen_fact: str, agent_id: str) -> None:
     """User or auto-resolver picks which fact wins. Overwrites the losing memory's confidence to 0."""
-    r = await aioredis.from_url(REDIS_URL, decode_responses=True)
+    from memory.working import get_redis
+    r = await get_redis()
     raw = await r.get(f"contradiction:{event_id}")
     if not raw:
-        await r.aclose()
         return
 
     event = ContradictionEvent.model_validate_json(raw)
@@ -122,5 +122,3 @@ async def resolve_contradiction(event_id: str, chosen_fact: str, agent_id: str) 
     # Prune the conflicting memory if the new fact wins
     if chosen_fact == event.new_fact:
         await update_memory_confidence(event.conflicting_memory_id, 0.0)
-
-    await r.aclose()

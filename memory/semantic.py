@@ -13,11 +13,18 @@ openai_client = AsyncOpenAI()
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 
 
+_semantic_index_instance: AsyncSearchIndex | None = None
+
 async def get_semantic_index() -> AsyncSearchIndex:
+    global _semantic_index_instance
+    if _semantic_index_instance is not None:
+        return _semantic_index_instance
+        
     if SEMANTIC_SCHEMA is None:
         raise RuntimeError("SEMANTIC_SCHEMA is not available. Install redisvl.")
     index = AsyncSearchIndex(SEMANTIC_SCHEMA, redis_url=REDIS_URL)
     await index.create(overwrite=False)
+    _semantic_index_instance = index
     return index
 
 

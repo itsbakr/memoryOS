@@ -362,17 +362,38 @@
             `).join('');
         }
 
-        function switchSession(sid, aid) {
+        async function switchSession(sid, aid) {
             currentSessionId = sid;
             currentAgentId = aid;
-            // Clear chat for now (in a real app, we'd fetch message history from a DB)
-            document.getElementById('chat-container').innerHTML = `
+            const container = document.getElementById('chat-container');
+            container.innerHTML = `
                 <div class="message agent">
-                    <div class="message-content">[Session Switched - History not persisted to UI yet]</div>
+                    <div class="message-content">Loading history...</div>
                 </div>
             `;
             loadSessions();
             updateMemoryStats();
+            
+            try {
+                const res = await fetch(`/api/chat/history?session_id=${sid}`);
+                const data = await res.json();
+                
+                container.innerHTML = ''; // clear loading
+                
+                if (data.history.length === 0) {
+                    appendMessage('agent', 'Hello! How can I help you today?');
+                } else {
+                    data.history.forEach(msg => {
+                        appendMessage(msg.role, msg.content);
+                    });
+                }
+            } catch (e) {
+                container.innerHTML = `
+                    <div class="message agent">
+                        <div class="message-content">Hello! How can I help you today?</div>
+                    </div>
+                `;
+            }
         }
 
         function handleEnter(e) {

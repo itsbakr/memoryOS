@@ -39,6 +39,8 @@ async def dashboard():
         return f.read()
 
 
+from memory.working import get_redis
+
 @app.post("/api/sessions")
 async def create_session():
     """Create a new chat session."""
@@ -46,7 +48,7 @@ async def create_session():
     agent_id = str(uuid.uuid4())
     created_at = time.time()
     
-    r = await aioredis.from_url(REDIS_URL, decode_responses=True)
+    r = await get_redis()
     await r.hset(
         f"session:{session_id}",
         mapping={
@@ -57,7 +59,6 @@ async def create_session():
         }
     )
     await r.lpush("sessions:list", session_id)
-    await r.aclose()
     
     return {"session_id": session_id, "agent_id": agent_id, "created_at": created_at}
 
@@ -65,7 +66,7 @@ async def create_session():
 @app.get("/api/sessions")
 async def list_sessions():
     """List all available sessions."""
-    r = await aioredis.from_url(REDIS_URL, decode_responses=True)
+    r = await get_redis()
     session_ids = await r.lrange("sessions:list", 0, -1)
     
     sessions = []
@@ -79,18 +80,16 @@ async def list_sessions():
                 "created_at": float(data.get("created_at", 0))
             })
             
-    await r.aclose()
     return {"sessions": sessions}
 
 
 @app.post("/api/chat")
 async def chat(request: ChatRequest):
     """Process a single chat turn within a session."""
-    r = await aioredis.from_url(REDIS_URL, decode_responses=True)
+    r = await get_redis()
     session_data = await r.hgetall(f"session:{request.session_id}")
     
     if not session_data:
-        await r.aclose()
         raise HTTPException(status_code=404, detail="Session not found")
         
     agent_id = session_data["agent_id"]
@@ -101,6 +100,9 @@ async def chat(request: ChatRequest):
         new_title = request.message[:40] + ("..." if len(request.message) > 40 else "")
         await r.hset(f"session:{request.session_id}", "title", new_title)
         
+    # Store user message in history
+    await r.rpush(f"session_history:{request.session_id}", json.dumps({"role": "user", "content": request.message}))
+
     # Run the agent
     try:
         reply_text, new_response_id, contradiction = await run_agent(
@@ -109,20 +111,33 @@ async def chat(request: ChatRequest):
             previous_response_id=previous_response_id
         )
     except Exception as e:
-        await r.aclose()
         raise HTTPException(status_code=500, detail=str(e))
         
     # Save the new response ID for next turn
     if new_response_id:
         await r.hset(f"session:{request.session_id}", "previous_response_id", new_response_id)
         
-    await r.aclose()
-    
+    # Store agent reply in history
+    await r.rpush(f"session_history:{request.session_id}", json.dumps({"role": "agent", "content": reply_text}))
+
     return {
         "reply": reply_text,
         "response_id": new_response_id,
         "contradiction": contradiction
     }
+
+
+@app.get("/api/chat/history")
+async def chat_history(session_id: str):
+    """Get the message history for a session."""
+    r = await get_redis()
+    raw_history = await r.lrange(f"session_history:{session_id}", 0, -1)
+    
+    history = []
+    for item in raw_history:
+        history.append(json.loads(item))
+        
+    return {"history": history}
 
 
 @app.get("/api/memory/stats")
@@ -170,14 +185,13 @@ async def memory_stats(agent_id: str = DEFAULT_AGENT):
 
 @app.get("/api/contradictions")
 async def get_contradictions(agent_id: str = DEFAULT_AGENT):
-    r = await aioredis.from_url(REDIS_URL, decode_responses=True)
+    r = await get_redis()
     ids = await r.lrange(f"agent:{agent_id}:contradictions", 0, 19)
     events = []
     for cid in ids:
         raw = await r.get(f"contradiction:{cid}")
         if raw:
             events.append(json.loads(raw))
-    await r.aclose()
     return {"contradictions": events}
 
 

@@ -52,9 +52,9 @@ async def checkpoint(agent_id: str) -> str | None:
         working.task or "current task", agent_id, k=10, min_confidence=0.2
     )
 
-    r = await aioredis.from_url(REDIS_URL, decode_responses=True)
+    from memory.working import get_redis
+    r = await get_redis()
     version = int(await r.incr(f"agent:{agent_id}:{CHECKPOINT_VERSION_KEY}"))
-    await r.aclose()
 
     payload = CheckpointPayload(
         agent_id=agent_id,
