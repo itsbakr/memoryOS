@@ -41,6 +41,12 @@ class ChatRequest(BaseModel):
     message: str
 
 
+class IngestRequest(BaseModel):
+    agent_id: str
+    transcript: str  # full conversation text to extract memories from
+    task_context: str = "unknown"
+
+
 import os
 from fastapi.staticfiles import StaticFiles
 
@@ -149,6 +155,9 @@ async def chat_history(session_id: str):
 @app.get("/api/memory/stats")
 async def memory_stats(agent_id: str = DEFAULT_AGENT):
     """Returns memory stats for the dashboard."""
+    from memory.episodic import count_memories
+    total_memories_count = await count_memories(agent_id)
+    
     memories = await retrieve_memories(
         "everything important",
         agent_id,
@@ -172,7 +181,7 @@ async def memory_stats(agent_id: str = DEFAULT_AGENT):
             bins["stale"] += 1
 
     return {
-        "total_memories": len(memories),
+        "total_memories": total_memories_count,
         "confidence_distribution": bins,
         "working_memory": working.model_dump() if working else None,
         "memories": [
@@ -180,6 +189,7 @@ async def memory_stats(agent_id: str = DEFAULT_AGENT):
                 "content": m.content[:60] + "..." if len(m.content) > 60 else m.content,
                 "confidence": round(calculate_current_confidence(m), 2),
                 "source": m.source,
+                "category": m.category or "general",
                 "age_hours": round((time.time() - m.created_at) / 3600, 1),
             }
             for m in sorted(
@@ -205,6 +215,71 @@ async def get_contradictions(agent_id: str = DEFAULT_AGENT):
 async def resolve(event_id: str, chosen_fact: str, agent_id: str = DEFAULT_AGENT):
     await resolve_contradiction(event_id, chosen_fact, agent_id)
     return {"status": "resolved"}
+
+
+# ---------------------------------------------------------------------------
+# Claude Code integration endpoints
+# ---------------------------------------------------------------------------
+
+@app.get("/api/context/snapshot")
+async def context_snapshot(agent_id: str = DEFAULT_AGENT):
+    """
+    Returns a structured memory snapshot grouped by developer category.
+    Used by mcp_server.py and scripts/sync_claude_md.py to build
+    the CLAUDE.md context file and respond to MCP tool calls.
+    """
+    all_memories = await retrieve_memories(
+        "everything", agent_id, k=200, min_confidence=0.0
+    )
+    working = await get_working_memory(agent_id)
+
+    def _bucket(categories: set) -> list[dict]:
+        items = []
+        for m in all_memories:
+            cat = m.category or "general"
+            if cat not in categories:
+                continue
+            live_conf = calculate_current_confidence(m)
+            if live_conf < 0.05:
+                continue
+            items.append({
+                "id": m.id,
+                "content": m.content,
+                "category": cat,
+                "source": m.source,
+                "confidence": round(live_conf, 3),
+                "age_hours": round((time.time() - m.created_at) / 3600, 1),
+            })
+        # Sort by confidence descending
+        items.sort(key=lambda x: x["confidence"], reverse=True)
+        return items
+
+    return {
+        "agent_id": agent_id,
+        "profile": _bucket(PROFILE_CATEGORIES),
+        "project": _bucket(PROJECT_CATEGORIES),
+        "workflow": _bucket(WORKFLOW_CATEGORIES),
+        "working_memory": working.model_dump() if working else None,
+        "generated_at": time.time(),
+    }
+
+
+@app.post("/api/context/ingest")
+async def context_ingest(request: IngestRequest):
+    """
+    Bulk-extract and store memories from a conversation transcript.
+    Called by the Cursor post-conversation hook after each session ends.
+    """
+    facts = await extract_facts(request.transcript, request.task_context, request.agent_id)
+    stored_ids = []
+    for fact in facts:
+        memory_id = await add_memory(fact)
+        stored_ids.append(memory_id)
+    return {
+        "status": "ok",
+        "stored": len(stored_ids),
+        "memory_ids": stored_ids,
+    }
 
 # Setup React Frontend distribution serving
 if os.path.exists("frontend/dist"):
