@@ -380,7 +380,7 @@
                 
                 container.innerHTML = ''; // clear loading
                 
-                if (data.history.length === 0) {
+                if (!data.history || data.history.length === 0) {
                     appendMessage('agent', 'Hello! How can I help you today?');
                 } else {
                     data.history.forEach(msg => {
@@ -388,11 +388,8 @@
                     });
                 }
             } catch (e) {
-                container.innerHTML = `
-                    <div class="message agent">
-                        <div class="message-content">Hello! How can I help you today?</div>
-                    </div>
-                `;
+                container.innerHTML = '';
+                appendMessage('agent', 'Hello! How can I help you today?');
             }
         }
 
@@ -497,11 +494,46 @@
 
             banner.innerHTML = `<div style="color: var(--high)">Resolved! Stored: "${chosenFact}"</div>`;
             updateMemoryStats();
+
+            // Automatically tell the agent what was chosen so it can proceed
+            const resolveMessage = `[System: The user has resolved the contradiction. They confirmed the correct fact is: "${chosenFact}". Please acknowledge this and proceed with their request.]`;
+            
+            const btn = document.getElementById('send-btn');
+            btn.disabled = true;
+            const loadingMsg = appendMessage('agent', '...');
+
+            try {
+                const res = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        session_id: currentSessionId,
+                        message: resolveMessage
+                    })
+                });
+
+                const data = await res.json();
+                loadingMsg.remove();
+
+                if (data.reply) {
+                    appendMessage('agent', data.reply);
+                }
+                loadSessions();
+            } catch (e) {
+                loadingMsg.innerText = 'Error: Failed to fetch response.';
+            } finally {
+                btn.disabled = false;
+            }
         }
 
         function startMemoryPolling() {
             if (memoryPollInterval) clearInterval(memoryPollInterval);
-            memoryPollInterval = setInterval(updateMemoryStats, 3000);
+            memoryPollInterval = setInterval(() => {
+                // Only poll if the tab is visible to save network/Redis requests
+                if (!document.hidden) {
+                    updateMemoryStats();
+                }
+            }, 5000);
         }
 
         async function updateMemoryStats() {
@@ -532,6 +564,13 @@
 
                 // Episodic List
                 const episodic = document.getElementById('episodic-list');
+                
+                // Update the "saved" counter (using length of total memories)
+                const savingsCount = document.getElementById('token-savings');
+                if (savingsCount) {
+                    savingsCount.innerText = stats.total_memories + ' saved';
+                }
+
                 if (stats.memories.length === 0) {
                     episodic.innerHTML = '<div class="loading">No memories stored yet.</div>';
                 } else {
