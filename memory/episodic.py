@@ -6,10 +6,11 @@ from redisvl.index import AsyncSearchIndex
 from redisvl.query import VectorQuery
 from redisvl.query.filter import Tag
 
+import redis.asyncio as aioredis
+
 from .decay import calculate_current_confidence, reinforce_memory
 from .models import EPISODIC_SCHEMA, MemoryEntry
-
-import redis.asyncio as aioredis
+from .working import get_redis
 
 openai_client = AsyncOpenAI()
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
@@ -25,20 +26,12 @@ async def get_index() -> AsyncSearchIndex:
         
     if EPISODIC_SCHEMA is None:
         raise RuntimeError("EPISODIC_SCHEMA is not available. Install redisvl.")
-    index = AsyncSearchIndex(EPISODIC_SCHEMA, redis_url=REDIS_URL)
+        
+    client = await get_redis()
+    index = AsyncSearchIndex(EPISODIC_SCHEMA, redis_client=client)
     await index.create(overwrite=False)
     _index_instance = index
     return index
-
-
-_redis_pool = None
-
-async def get_redis():
-    global _redis_pool
-    if _redis_pool is None:
-        _redis_pool = aioredis.from_url(REDIS_URL, decode_responses=True)
-    return _redis_pool
-
 
 def _stream_key(agent_id: str) -> str:
     return f"agent:{agent_id}:episodic_stream"

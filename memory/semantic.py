@@ -6,8 +6,8 @@ from redisvl.index import AsyncSearchIndex
 from redisvl.query import VectorQuery
 from redisvl.query.filter import Tag
 
-
 from .models import SEMANTIC_SCHEMA
+from .working import get_redis
 
 openai_client = AsyncOpenAI()
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
@@ -22,7 +22,9 @@ async def get_semantic_index() -> AsyncSearchIndex:
         
     if SEMANTIC_SCHEMA is None:
         raise RuntimeError("SEMANTIC_SCHEMA is not available. Install redisvl.")
-    index = AsyncSearchIndex(SEMANTIC_SCHEMA, redis_url=REDIS_URL)
+        
+    client = await get_redis()
+    index = AsyncSearchIndex(SEMANTIC_SCHEMA, redis_client=client)
     await index.create(overwrite=False)
     _semantic_index_instance = index
     return index
