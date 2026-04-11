@@ -19,12 +19,18 @@ class MemoryEntry(BaseModel):
     layer: Literal["working", "episodic", "semantic"]
     confidence: float = 1.0  # 0.0-1.0, starts at 1.0
     source: Literal["user_said", "agent_inferred", "tool_result"]
+    # Developer memory category (see memory/categories.py for full ontology).
+    # None means legacy/uncategorised entry — treated as "general".
+    category: Optional[str] = None
     created_at: float = Field(default_factory=time.time)
     last_reinforced: float = Field(default_factory=time.time)
     # DECAY RATES (per hour):
-    # user_preference: 0.001  (very slow — weeks to decay meaningfully)
-    # task_context:    0.05   (hours — current task facts)
-    # tool_result:     0.1    (fast — stale data decays quickly)
+    # personal_context: 0.0005 (permanent — identity facts)
+    # user_preference:  0.001  (very slow — weeks to decay meaningfully)
+    # project_decision: 0.002  (slow — months)
+    # workflow_pattern: 0.005  (moderate — weeks)
+    # codebase_knowledge: 0.01 (days — code changes)
+    # task_context:     0.1    (fast — hours, current work)
     decay_rate: float = 0.05
     embedding: Optional[list[float]] = None
 
@@ -74,6 +80,7 @@ if IndexSchema:
                 {"name": "agent_id", "type": "tag"},
                 {"name": "content", "type": "text"},
                 {"name": "source", "type": "tag"},
+                {"name": "category", "type": "tag"},
                 {"name": "confidence", "type": "numeric"},
                 {"name": "decay_rate", "type": "numeric"},
                 {"name": "created_at", "type": "numeric"},
