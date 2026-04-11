@@ -1,12 +1,15 @@
 import json
 import os
 import time
+import uuid
 
 import redis.asyncio as aioredis
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
+from pydantic import BaseModel
 
+from agent.loop import run_agent
 from memory.contradiction import resolve_contradiction
 from memory.decay import calculate_current_confidence
 from memory.episodic import retrieve_memories
@@ -25,10 +28,101 @@ REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 DEFAULT_AGENT = "demo-agent"
 
 
+class ChatRequest(BaseModel):
+    session_id: str
+    message: str
+
+
 @app.get("/", response_class=HTMLResponse)
 async def dashboard():
     with open("dashboard/index.html") as f:
         return f.read()
+
+
+@app.post("/api/sessions")
+async def create_session():
+    """Create a new chat session."""
+    session_id = str(uuid.uuid4())
+    agent_id = str(uuid.uuid4())
+    created_at = time.time()
+    
+    r = await aioredis.from_url(REDIS_URL, decode_responses=True)
+    await r.hset(
+        f"session:{session_id}",
+        mapping={
+            "agent_id": agent_id,
+            "title": "New Chat",
+            "previous_response_id": "",
+            "created_at": str(created_at)
+        }
+    )
+    await r.lpush("sessions:list", session_id)
+    await r.aclose()
+    
+    return {"session_id": session_id, "agent_id": agent_id, "created_at": created_at}
+
+
+@app.get("/api/sessions")
+async def list_sessions():
+    """List all available sessions."""
+    r = await aioredis.from_url(REDIS_URL, decode_responses=True)
+    session_ids = await r.lrange("sessions:list", 0, -1)
+    
+    sessions = []
+    for sid in session_ids:
+        data = await r.hgetall(f"session:{sid}")
+        if data:
+            sessions.append({
+                "session_id": sid,
+                "agent_id": data.get("agent_id"),
+                "title": data.get("title", "New Chat"),
+                "created_at": float(data.get("created_at", 0))
+            })
+            
+    await r.aclose()
+    return {"sessions": sessions}
+
+
+@app.post("/api/chat")
+async def chat(request: ChatRequest):
+    """Process a single chat turn within a session."""
+    r = await aioredis.from_url(REDIS_URL, decode_responses=True)
+    session_data = await r.hgetall(f"session:{request.session_id}")
+    
+    if not session_data:
+        await r.aclose()
+        raise HTTPException(status_code=404, detail="Session not found")
+        
+    agent_id = session_data["agent_id"]
+    previous_response_id = session_data.get("previous_response_id", "") or None
+    
+    # Update title if it's the first message
+    if session_data.get("title") == "New Chat":
+        new_title = request.message[:40] + ("..." if len(request.message) > 40 else "")
+        await r.hset(f"session:{request.session_id}", "title", new_title)
+        
+    # Run the agent
+    try:
+        reply_text, new_response_id, contradiction = await run_agent(
+            agent_id=agent_id,
+            user_message=request.message,
+            previous_response_id=previous_response_id
+        )
+    except Exception as e:
+        await r.aclose()
+        raise HTTPException(status_code=500, detail=str(e))
+        
+    # Save the new response ID for next turn
+    if new_response_id:
+        await r.hset(f"session:{request.session_id}", "previous_response_id", new_response_id)
+        
+    await r.aclose()
+    
+    return {
+        "reply": reply_text,
+        "response_id": new_response_id,
+        "contradiction": contradiction
+    }
 
 
 @app.get("/api/memory/stats")
