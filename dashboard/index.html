@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Temporal Memory OS</title>
+    <style>
+        :root {
+            --bg: #0f172a;
+            --surface: #1e293b;
+            --surface-hover: #334155;
+            --text: #f8fafc;
+            --text-dim: #94a3b8;
+            --high: #22c55e;
+            --med: #eab308;
+            --low: #f97316;
+            --stale: #ef4444;
+            --border: #334155;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            margin: 0;
+            padding: 2rem;
+            line-height: 1.5;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 2rem;
+        }
+
+        .header {
+            grid-column: 1 / -1;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            margin-bottom: 1rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid var(--border);
+        }
+
+        h1, h2 { margin: 0; }
+        .subtitle { color: var(--text-dim); }
+
+        .card {
+            background-color: var(--surface);
+            border-radius: 8px;
+            padding: 1.5rem;
+            border: 1px solid var(--border);
+        }
+
+        /* Working Memory */
+        .progress-container {
+            width: 100%;
+            height: 8px;
+            background-color: var(--bg);
+            border-radius: 4px;
+            margin: 1rem 0;
+            overflow: hidden;
+        }
+
+        .progress-bar {
+            height: 100%;
+            background-color: var(--high);
+            transition: width 0.3s ease;
+        }
+
+        /* Memory Heatmap */
+        .memory-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+
+        .memory-item {
+            background-color: var(--bg);
+            padding: 1rem;
+            border-radius: 6px;
+            border-left: 4px solid var(--border);
+            font-size: 0.9rem;
+        }
+
+        .conf-high { border-left-color: var(--high); }
+        .conf-med { border-left-color: var(--med); }
+        .conf-low { border-left-color: var(--low); }
+        .conf-stale { border-left-color: var(--stale); opacity: 0.6; }
+
+        .memory-meta {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 0.5rem;
+            font-size: 0.8rem;
+            color: var(--text-dim);
+        }
+
+        /* Contradictions */
+        .contradiction {
+            background-color: rgba(239, 68, 68, 0.1);
+            border: 1px solid var(--stale);
+            padding: 1rem;
+            border-radius: 6px;
+            margin-bottom: 1rem;
+        }
+
+        .resolve-btn {
+            background-color: var(--surface-hover);
+            color: var(--text);
+            border: 1px solid var(--border);
+            padding: 0.5rem 1rem;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-top: 0.5rem;
+            margin-right: 0.5rem;
+        }
+        .resolve-btn:hover { background-color: var(--border); }
+
+        /* Stats */
+        .stat-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+        .stat-box {
+            background-color: var(--bg);
+            padding: 1rem;
+            border-radius: 6px;
+            text-align: center;
+        }
+        .stat-num {
+            font-size: 2rem;
+            font-weight: bold;
+            margin: 0.5rem 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div>
+                <h1>Temporal Memory OS</h1>
+                <div class="subtitle">Live Memory State & Confidence Decay</div>
+            </div>
+            <div style="text-align: right">
+                <div class="subtitle">Token Savings</div>
+                <div id="token-savings" style="font-size: 1.5rem; font-weight: bold; color: var(--high)">0</div>
+            </div>
+        </div>
+
+        <div class="main-column">
+            <div class="card" style="margin-bottom: 2rem;">
+                <h2>Episodic Memory Heatmap</h2>
+                <div class="subtitle">Memories decay over time unless reinforced</div>
+                <div id="memory-grid" class="memory-grid">
+                    Loading memories...
+                </div>
+            </div>
+        </div>
+
+        <div class="side-column">
+            <div class="card" style="margin-bottom: 2rem;">
+                <h2>Working Memory</h2>
+                <div id="working-memory" style="margin-top: 1rem;">
+                    Loading task state...
+                </div>
+            </div>
+
+            <div class="card" style="margin-bottom: 2rem;">
+                <h2>Stats</h2>
+                <div class="stat-grid" id="stats-grid">
+                    <!-- Populated by JS -->
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>Contradictions</h2>
+                <div id="contradictions-feed" style="margin-top: 1rem;">
+                    No pending contradictions.
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function fetchData() {
+            try {
+                const [statsRes, contraRes] = await Promise.all([
+                    fetch('/api/memory/stats'),
+                    fetch('/api/contradictions')
+                ]);
+                
+                const stats = await statsRes.json();
+                const contra = await contraRes.json();
+                
+                renderDashboard(stats, contra);
+            } catch (e) {
+                console.error('Dashboard fetch failed:', e);
+            }
+        }
+
+        function renderDashboard(stats, contra) {
+            // Token Savings
+            const savings = stats.total_memories * 150 - (stats.memories.length * 150);
+            document.getElementById('token-savings').innerText = Math.max(0, savings).toLocaleString();
+
+            // Working Memory
+            const wm = document.getElementById('working-memory');
+            if (stats.working_memory) {
+                const pct = stats.working_memory.progress_pct;
+                wm.innerHTML = `
+                    <div style="font-weight: bold">${stats.working_memory.task}</div>
+                    <div class="progress-container">
+                        <div class="progress-bar" style="width: ${pct}%"></div>
+                    </div>
+                    <div style="color: var(--text-dim); font-size: 0.9rem">Last action: ${stats.working_memory.last_action || 'None'}</div>
+                `;
+            } else {
+                wm.innerHTML = '<div class="subtitle">No active task</div>';
+            }
+
+            // Stats
+            document.getElementById('stats-grid').innerHTML = `
+                <div class="stat-box">
+                    <div class="stat-num" style="color: var(--high)">${stats.confidence_distribution.high}</div>
+                    <div class="subtitle">High Conf</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-num" style="color: var(--stale)">${stats.confidence_distribution.stale}</div>
+                    <div class="subtitle">Stale/Pruned</div>
+                </div>
+            `;
+
+            // Memories
+            const grid = document.getElementById('memory-grid');
+            grid.innerHTML = stats.memories.map(m => {
+                let confClass = 'conf-high';
+                if (m.confidence < 0.7) confClass = 'conf-med';
+                if (m.confidence < 0.4) confClass = 'conf-low';
+                if (m.confidence < 0.1) confClass = 'conf-stale';
+
+                return `
+                    <div class="memory-item ${confClass}">
+                        <div>${m.content}</div>
+                        <div class="memory-meta">
+                            <span>conf: ${m.confidence.toFixed(2)}</span>
+                            <span>age: ${m.age_hours}h</span>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            // Contradictions
+            const feed = document.getElementById('contradictions-feed');
+            const pending = contra.contradictions.filter(c => c.resolution === 'pending');
+            
+            if (pending.length === 0) {
+                feed.innerHTML = '<div class="subtitle">No pending contradictions.</div>';
+            } else {
+                feed.innerHTML = pending.map(c => `
+                    <div class="contradiction">
+                        <div style="margin-bottom: 0.5rem"><strong>Conflict Detected</strong></div>
+                        <div>Old: ${c.conflicting_memory_content}</div>
+                        <div>New: ${c.new_fact}</div>
+                        <div style="margin-top: 0.5rem; color: var(--text-dim); font-size: 0.9rem">${c.explanation}</div>
+                    </div>
+                `).join('');
+            }
+        }
+
+        // Start polling
+        fetchData();
+        setInterval(fetchData, 3000);
+    </script>
+</body>
+</html>
