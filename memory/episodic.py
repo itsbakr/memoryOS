@@ -36,6 +36,11 @@ async def get_index() -> AsyncSearchIndex:
 def _stream_key(agent_id: str) -> str:
     return f"agent:{agent_id}:episodic_stream"
 
+async def count_memories(agent_id: str) -> int:
+    """Fast O(1) way to count total memories stored for an agent via the stream."""
+    r = await get_redis()
+    return await r.xlen(_stream_key(agent_id))
+
 
 async def embed(text: str) -> list[float]:
     response = await openai_client.embeddings.create(
@@ -56,6 +61,7 @@ async def add_memory(memory: MemoryEntry) -> str:
         "agent_id": memory.agent_id,
         "content": memory.content,
         "source": memory.source,
+        "category": memory.category or "general",
         "confidence": memory.confidence,
         "decay_rate": memory.decay_rate,
         "created_at": memory.created_at,
@@ -108,6 +114,7 @@ async def retrieve_memories(
             "id",
             "content",
             "source",
+            "category",
             "confidence",
             "decay_rate",
             "created_at",
@@ -126,6 +133,7 @@ async def retrieve_memories(
             content=r["content"],
             layer="episodic",
             source=r["source"],
+            category=r.get("category") or "general",
             confidence=float(r["confidence"]),
             decay_rate=float(r["decay_rate"]),
             created_at=float(r["created_at"]),
