@@ -174,6 +174,9 @@ def render_claude_md(snapshot: dict, backend_url: str) -> str:
         "- Use the `remember` tool to store new facts the developer shares."
     )
     lines.append(
+        "- When the user shares multiple pieces of information in a single message, break them down into separate ATOMIC facts and pass them all at once in the `facts` array."
+    )
+    lines.append(
         "- Use `get_my_profile` and `get_project_context` tools at the start of each session."
     )
     lines.append(

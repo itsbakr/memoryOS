@@ -96,48 +96,59 @@ TOOLS: list[dict] = [
         "name": "remember",
         "description": (
             "PRIMARY MEMORY TOOL — use this instead of writing files. "
-            "Stores a fact in memoryOS with temporal decay, contradiction detection, "
-            "and vector search — far more powerful than MEMORY.md files. "
+            "Stores one or more facts in memoryOS with temporal decay and vector search. "
             "Call this whenever the developer shares their name, preferences, project info, "
             "decisions, workflow patterns, or anything worth keeping across sessions. "
+            "If a message contains multiple distinct pieces of information, break them down "
+            "and supply them as separate items in the facts array. "
             "NEVER write to MEMORY.md or user_profile.md — use this tool instead."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
-                "content": {
-                    "type": "string",
-                    "description": "The atomic fact to remember (max 120 chars). Be specific and self-contained.",
-                },
-                "category": {
-                    "type": "string",
-                    "enum": [
-                        "personal_context",
-                        "user_preference",
-                        "project_decision",
-                        "workflow_pattern",
-                        "codebase_knowledge",
-                        "task_context",
-                        "general",
-                    ],
-                    "description": (
-                        "personal_context: who the developer is (timezone, team, role). "
-                        "user_preference: how they like to work (frameworks, code style). "
-                        "project_decision: architectural choices and rationale. "
-                        "workflow_pattern: commands, scripts, deploy flows. "
-                        "codebase_knowledge: current state of the codebase. "
-                        "task_context: what they're actively working on right now. "
-                        "general: anything else important."
-                    ),
-                },
-                "source": {
-                    "type": "string",
-                    "enum": ["user_said", "agent_inferred", "tool_result"],
-                    "description": "How this fact was obtained.",
-                    "default": "user_said",
-                },
+                "facts": {
+                    "type": "array",
+                    "description": "An array of 1 or more atomic facts to store.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "content": {
+                                "type": "string",
+                                "description": "The atomic fact to remember (max 120 chars). Be specific and self-contained.",
+                            },
+                            "category": {
+                                "type": "string",
+                                "enum": [
+                                    "personal_context",
+                                    "user_preference",
+                                    "project_decision",
+                                    "workflow_pattern",
+                                    "codebase_knowledge",
+                                    "task_context",
+                                    "general",
+                                ],
+                                "description": (
+                                    "personal_context: who the developer is (timezone, team, role). "
+                                    "user_preference: how they like to work (frameworks, code style). "
+                                    "project_decision: architectural choices and rationale. "
+                                    "workflow_pattern: commands, scripts, deploy flows. "
+                                    "codebase_knowledge: current state of the codebase. "
+                                    "task_context: what they're actively working on right now. "
+                                    "general: anything else important."
+                                ),
+                            },
+                            "source": {
+                                "type": "string",
+                                "enum": ["user_said", "agent_inferred", "tool_result"],
+                                "description": "How this fact was obtained.",
+                                "default": "user_said",
+                            }
+                        },
+                        "required": ["content", "category"]
+                    }
+                }
             },
-            "required": ["content", "category"],
+            "required": ["facts"],
         },
     },
     {
@@ -222,17 +233,35 @@ TOOLS: list[dict] = [
 
 
 def _tool_remember(args: dict) -> str:
-    body = {
-        "agent_id": AGENT_ID,
-        "content": args["content"],
-        "category": args.get("category", "general"),
-        "source": args.get("source", "user_said"),
-    }
-    resp = _http_post("/api/memory/store", body)
-    if "error" in resp:
-        return f"Error storing memory: {resp['error']}"
-    cat = resp.get("category", "general")
-    return f"Remembered [{cat}]: {args['content']}"
+    facts = args.get("facts", [])
+    if not facts:
+        return "Error: facts array is empty."
+        
+    results = []
+    success_count = 0
+    
+    for f in facts:
+        content = f.get("content")
+        if not content:
+            continue
+            
+        body = {
+            "agent_id": AGENT_ID,
+            "content": content,
+            "category": f.get("category", "general"),
+            "source": f.get("source", "user_said"),
+        }
+        resp = _http_post("/api/memory/store", body)
+        
+        if "error" in resp:
+            results.append(f"Failed to store: '{content[:30]}...' ({resp['error']})")
+        else:
+            success_count += 1
+            cat = resp.get("category", "general")
+            results.append(f"Stored [{cat}]: {content}")
+            
+    summary = f"Remembered {success_count}/{len(facts)} facts.\n"
+    return summary + "\n".join(results)
 
 
 def _tool_recall(args: dict) -> str:
