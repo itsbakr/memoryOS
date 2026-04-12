@@ -4,8 +4,16 @@ import { SendHorizontal, Loader2, Sparkles, RefreshCw } from 'lucide-react';
 import { clsx } from 'clsx';
 import { motion, AnimatePresence } from 'framer-motion';
 
-export function ChatWindow({ sessionId, onMessageSent }: { sessionId: string, onMessageSent: () => void }) {
-  const [messages, setMessages] = useState<{role: string, content: string}[]>([]);
+export function ChatWindow({
+  sessionId,
+  agentId,
+  onMessageSent,
+}: {
+  sessionId: string;
+  agentId: string;
+  onMessageSent: () => void;
+}) {
+  const [messages, setMessages] = useState<{role: string, content: string, provenance?: any[]}[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [contradiction, setContradiction] = useState<any | null>(null);
@@ -54,7 +62,10 @@ export function ChatWindow({ sessionId, onMessageSent }: { sessionId: string, on
       const data = await res.json();
       
       if (data.reply) {
-        setMessages(prev => [...prev, { role: 'agent', content: data.reply }]);
+        setMessages(prev => [
+          ...prev,
+          { role: 'agent', content: data.reply, provenance: data.provenance }
+        ]);
       }
       if (data.contradiction) {
         setContradiction(data.contradiction);
@@ -73,7 +84,7 @@ export function ChatWindow({ sessionId, onMessageSent }: { sessionId: string, on
     setContradiction({ ...contradiction, resolving: true });
     
     try {
-      await fetch(`/api/contradictions/${cid}/resolve?agent_id=demo-agent&chosen_fact=${encodeURIComponent(chosenFact)}`, {
+      await fetch(`/api/contradictions/${cid}/resolve?agent_id=${encodeURIComponent(agentId)}&chosen_fact=${encodeURIComponent(chosenFact)}`, {
         method: 'POST'
       });
       
@@ -121,7 +132,28 @@ export function ChatWindow({ sessionId, onMessageSent }: { sessionId: string, on
                 : "bg-transparent text-gray-100 prose prose-invert prose-p:leading-relaxed prose-pre:bg-[#1a1a1a] prose-pre:border prose-pre:border-gray-800"
             )}>
               {msg.role === 'agent' ? (
-                <ReactMarkdown>{msg.content}</ReactMarkdown>
+                <div>
+                  <ReactMarkdown>{msg.content}</ReactMarkdown>
+                  {msg.provenance && msg.provenance.length > 0 && (
+                    <div className="mt-3 text-xs text-gray-400">
+                      <details className="group">
+                        <summary className="cursor-pointer text-gray-500 hover:text-gray-300 transition">
+                          Context used ({msg.provenance.length})
+                        </summary>
+                        <div className="mt-2 space-y-2">
+                          {msg.provenance.map((item, idx) => (
+                            <div key={idx} className="border border-[#333] rounded-lg p-2 bg-[#1a1a1a]">
+                              <div className="text-gray-200 text-[12px] leading-snug">{item.content}</div>
+                              <div className="mt-1 text-[10px] text-gray-500">
+                                {item.category} · score {item.score} · {item.sources.join(', ')}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </details>
+                    </div>
+                  )}
+                </div>
               ) : (
                 msg.content
               )}
@@ -145,6 +177,12 @@ export function ChatWindow({ sessionId, onMessageSent }: { sessionId: string, on
                 <div className="text-sm text-gray-300 mb-4 space-y-2">
                   <p><strong className="text-gray-400 font-medium">Old Memory:</strong> {contradiction.conflicts_with}</p>
                   <p><strong className="text-gray-400 font-medium">New Observation:</strong> {contradiction.new_fact}</p>
+                  {contradiction.explanation && (
+                    <p><strong className="text-gray-400 font-medium">Why:</strong> {contradiction.explanation}</p>
+                  )}
+                  {typeof contradiction.confidence_score === 'number' && (
+                    <p><strong className="text-gray-400 font-medium">Confidence:</strong> {contradiction.confidence_score.toFixed(2)}</p>
+                  )}
                 </div>
                 <div className="flex gap-3">
                   <button 

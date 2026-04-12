@@ -6,10 +6,17 @@ import { DeveloperProfile } from './DeveloperProfile';
 
 type Tab = 'memory' | 'profile';
 
-export function MemoryPanel({ isOpen, toggle }: { isOpen: boolean; toggle: () => void }) {
+export function MemoryPanel({
+  agentId,
+  isOpen,
+  toggle,
+}: {
+  agentId: string;
+  isOpen: boolean;
+  toggle: () => void;
+}) {
   const [stats, setStats] = useState<any>(null);
   const [activeTab, setActiveTab] = useState<Tab>('memory');
-  const [agentId, setAgentId] = useState<string>('claude-code');
 
   useEffect(() => {
     fetchStats();
@@ -92,16 +99,10 @@ export function MemoryPanel({ isOpen, toggle }: { isOpen: boolean; toggle: () =>
       {/* ── Tab: Live Memory (original view) ── */}
       {activeTab === 'memory' && (
         <>
-          {/* Agent Dropdown */}
           <div className="flex items-center justify-between mb-4 bg-[#212121] p-2 rounded-lg border border-[#333]">
-            <select 
-              value={agentId}
-              onChange={(e) => setAgentId(e.target.value)}
-              className="bg-transparent text-[11px] text-gray-300 font-medium focus:outline-none cursor-pointer w-full"
-            >
-              <option value="claude-code">🤖 claude-code</option>
-              <option value="demo-agent">💬 demo-agent (Chat UI)</option>
-            </select>
+            <div className="text-[11px] text-gray-300 font-medium truncate">
+              Agent: {agentId}
+            </div>
           </div>
 
           {/* Token Savings */}
@@ -168,6 +169,7 @@ export function MemoryPanel({ isOpen, toggle }: { isOpen: boolean; toggle: () =>
                   if (m.confidence < 0.7) color = 'border-amber-500';
                   if (m.confidence < 0.4) color = 'border-orange-500';
                   if (m.confidence < 0.1) color = 'border-red-500 opacity-60';
+                  const inactiveClass = m.is_active === false ? 'opacity-60' : '';
 
                   // Category badge color
                   const catColors: Record<string, string> = {
@@ -183,13 +185,13 @@ export function MemoryPanel({ isOpen, toggle }: { isOpen: boolean; toggle: () =>
                   return (
                     <div
                       key={i}
-                      className={clsx('bg-[#212121] p-3 rounded-lg border-l-2 shadow-sm', color)}
+                      className={clsx('bg-[#212121] p-3 rounded-lg border-l-2 shadow-sm', color, inactiveClass)}
                     >
                       <p className="text-[13px] text-gray-300 leading-snug mb-2">{m.content}</p>
                       <div className="flex justify-between text-[10px] font-mono">
                         <span className={catColor}>{m.category || 'general'}</span>
                         <span className="text-gray-500">
-                          {m.confidence.toFixed(2)} · {m.age_hours}h
+                          v{m.version ?? 1} · {m.confidence.toFixed(2)} · {m.age_hours}h
                         </span>
                       </div>
                     </div>
@@ -203,7 +205,7 @@ export function MemoryPanel({ isOpen, toggle }: { isOpen: boolean; toggle: () =>
 
       {/* ── Tab: Developer Profile (new view) ── */}
       {activeTab === 'profile' && (
-        <DeveloperProfile initialAgentId={agentId} />
+        <DeveloperProfile agentId={agentId} />
       )}
     </aside>
   );

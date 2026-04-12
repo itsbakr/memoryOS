@@ -9,6 +9,8 @@ interface MemoryItem {
   source: string;
   confidence: number;
   age_hours: number;
+  is_active?: boolean;
+  version?: number;
 }
 
 interface Snapshot {
@@ -69,11 +71,13 @@ function MemoryCard({ item }: { item: MemoryItem }) {
   const label = CATEGORY_LABELS[item.category] ?? item.category;
   const [borderColor] = colorClass.split(' ');
 
+  const statusLabel = item.is_active === false ? 'inactive' : `v${item.version ?? 1}`;
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 4 }}
       animate={{ opacity: 1, y: 0 }}
-      className={`bg-[#212121] p-3 rounded-lg border-l-2 ${borderColor} shadow-sm`}
+      className={`bg-[#212121] p-3 rounded-lg border-l-2 ${borderColor} shadow-sm ${item.is_active === false ? 'opacity-60' : ''}`}
     >
       <p className="text-[13px] text-gray-200 leading-snug mb-2">{item.content}</p>
       <div className="flex items-center justify-between">
@@ -82,6 +86,7 @@ function MemoryCard({ item }: { item: MemoryItem }) {
         </span>
         <div className="flex items-center gap-2">
           <ConfidenceDots confidence={item.confidence} />
+          <span className="text-[10px] text-gray-500 font-mono">{statusLabel}</span>
           <AgeLabel hours={item.age_hours} />
         </div>
       </div>
@@ -121,8 +126,7 @@ function Section({
   );
 }
 
-export function DeveloperProfile({ initialAgentId = 'claude-code' }: { initialAgentId?: string }) {
-  const [agentId, setAgentId] = useState(initialAgentId);
+export function DeveloperProfile({ agentId }: { agentId: string }) {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
@@ -172,16 +176,8 @@ export function DeveloperProfile({ initialAgentId = 'claude-code' }: { initialAg
 
   return (
     <div className="flex-1 overflow-y-auto">
-      {/* Header with Agent Toggle */}
       <div className="flex items-center justify-between mb-4 bg-[#212121] p-2 rounded-lg border border-[#333]">
-        <select 
-          value={agentId}
-          onChange={(e) => setAgentId(e.target.value)}
-          className="bg-transparent text-[11px] text-gray-300 font-medium focus:outline-none cursor-pointer w-full"
-        >
-          <option value="claude-code">🤖 claude-code</option>
-          <option value="demo-agent">💬 demo-agent (Chat UI)</option>
-        </select>
+        <div className="text-[11px] text-gray-300 font-medium truncate">Agent: {agentId}</div>
         <button
           onClick={fetchSnapshot}
           className="p-1 ml-2 hover:bg-[#2f2f2f] rounded text-gray-500 hover:text-gray-300 transition shrink-0"

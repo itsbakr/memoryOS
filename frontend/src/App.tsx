@@ -35,6 +35,9 @@ export default function App() {
     await fetchSessions();
   };
 
+  const activeSession = sessions.find((session) => session.session_id === currentSessionId);
+  const activeAgentId = activeSession?.agent_id ?? 'demo-agent';
+
   return (
     <div className="flex h-screen w-full bg-[#212121] overflow-hidden text-gray-100 font-sans">
       {/* Left Sidebar */}
@@ -52,6 +55,7 @@ export default function App() {
         {currentSessionId ? (
            <ChatWindow 
             sessionId={currentSessionId} 
+            agentId={activeAgentId}
             onMessageSent={fetchSessions} // Refresh sidebar titles
           />
         ) : (
@@ -61,6 +65,7 @@ export default function App() {
 
       {/* Right Memory Panel */}
       <MemoryPanel 
+        agentId={activeAgentId}
         isOpen={isMemoryPanelOpen}
         toggle={() => setIsMemoryPanelOpen(!isMemoryPanelOpen)}
       />
