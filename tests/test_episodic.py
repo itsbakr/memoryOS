@@ -56,24 +56,25 @@ async def test_add_and_retrieve_memories(monkeypatch):
     assert len(results) == 1
     assert results[0].id == "mem-1"
     assert results[0].content == "test memory"
-    mock_index.query.assert_called_once()
+    assert mock_index.query.call_count == 2
 
-    @pytest.mark.asyncio
-    async def test_reinforce_retrieved(monkeypatch):
-        mock_index = AsyncMock()
-        mock_json_client = AsyncMock()
-        # mock_index.client.json() returns an object with awaitable .set
-        mock_index.client.json.return_value = mock_json_client
-        monkeypatch.setattr(episodic, "get_index", AsyncMock(return_value=mock_index))
 
-        mem = MemoryEntry(
-            agent_id="agent-1",
-            content="test",
-            layer="episodic",
-            source="user_said",
-            confidence=0.5,
-        )
-        await episodic.reinforce_retrieved([mem])
+@pytest.mark.asyncio
+async def test_reinforce_retrieved(monkeypatch):
+    mock_index = AsyncMock()
+    mock_json_client = AsyncMock()
+    mock_index.client = AsyncMock()
+    mock_index.client.json = lambda: mock_json_client
+    monkeypatch.setattr(episodic, "get_index", AsyncMock(return_value=mock_index))
 
-        assert mem.confidence == 0.7
-        assert mock_json_client.set.call_count == 2
+    mem = MemoryEntry(
+        agent_id="agent-1",
+        content="test",
+        layer="episodic",
+        source="user_said",
+        confidence=0.5,
+    )
+    await episodic.reinforce_retrieved([mem])
+
+    assert mem.confidence == 0.7
+    assert mock_json_client.set.call_count == 2

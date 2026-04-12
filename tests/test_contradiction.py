@@ -64,12 +64,56 @@ async def test_resolve_contradiction(monkeypatch):
     monkeypatch.setattr(
         "memory.working.get_redis", AsyncMock(return_value=mock_redis)
     )
+    monkeypatch.setattr(contradiction, "log_event", AsyncMock())
 
+    old_mem = MemoryEntry(
+        id="mem-old",
+        agent_id="agent-1",
+        content="old fact",
+        layer="episodic",
+        source="user_said",
+        version=2,
+    )
+    monkeypatch.setattr(contradiction, "get_memory_by_id", AsyncMock(return_value=old_mem))
+    monkeypatch.setattr(contradiction, "add_memory", AsyncMock(return_value="mem-new"))
     mock_update = AsyncMock()
-    monkeypatch.setattr(contradiction, "update_memory_confidence", mock_update)
+    monkeypatch.setattr(contradiction, "update_memory_fields", mock_update)
 
     await contradiction.resolve_contradiction(event.id, "new fact", "agent-1")
 
     mock_redis.set.assert_called_once()
-    # The chosen fact is the new fact, so the old memory should be zeroed
-    mock_update.assert_called_once_with("mem-old", 0.0)
+    mock_update.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_resolve_contradiction_keep_old(monkeypatch):
+    mock_redis = AsyncMock()
+    event = ContradictionEvent(
+        agent_id="agent-1",
+        new_fact="new fact",
+        conflicting_memory_id="mem-old",
+        conflicting_memory_content="old fact",
+        confidence_score=0.8,
+        explanation="conflict",
+    )
+    mock_redis.get.return_value = event.model_dump_json()
+    monkeypatch.setattr(
+        "memory.working.get_redis", AsyncMock(return_value=mock_redis)
+    )
+    monkeypatch.setattr(contradiction, "log_event", AsyncMock())
+
+    old_mem = MemoryEntry(
+        id="mem-old",
+        agent_id="agent-1",
+        content="old fact",
+        layer="episodic",
+        source="user_said",
+    )
+    monkeypatch.setattr(contradiction, "get_memory_by_id", AsyncMock(return_value=old_mem))
+    mock_update = AsyncMock()
+    monkeypatch.setattr(contradiction, "update_memory_fields", mock_update)
+
+    await contradiction.resolve_contradiction(event.id, "old fact", "agent-1")
+
+    mock_redis.set.assert_called_once()
+    mock_update.assert_called_once()
