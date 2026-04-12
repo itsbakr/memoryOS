@@ -3,7 +3,7 @@
   Do NOT edit manually — your edits will be overwritten on the next sync.
   To add persistent context, tell Claude directly and it will store it.
 
-  Generated: 2026-04-11 23:38 UTC
+  Generated: 2026-04-12 04:31 UTC
   Agent ID:  claude-code
   Backend:   http://localhost:8000
 -->
@@ -11,20 +11,12 @@
 # Claude Memory Context
 
 > This file gives Claude Code persistent memory across sessions.
-> It is auto-synced from memoryOS. Last update: 2026-04-11 23:38 UTC
+> It is auto-synced from memoryOS. Last update: 2026-04-12 04:31 UTC
 
 
 ## Who I Am
 
-- ●●● Developer name is Ahmed Bakr
-- ●●● Ahmed prefers functional React components.
-- ●●● Ahmed prefers functional React components.
-- ●●● The developer's name is Ahmed Bakr.
-- ●●● The developer's name is Ahmed Bakr.
-- ●●● Ahmed uses FastAPI for backends.
-- ●●● Ahmed uses FastAPI for backends.
-- ●●● Ahmed is building an AI agent builder called Awn AI.
-- ●●● Ahmed Bakr is building an AI agent builder called Awn AI.
+- *(No profile context stored yet — tell Claude about yourself!)*
 
 ## Current Task
 
@@ -32,9 +24,7 @@
 
 ## This Project
 
-**Decisions made:**
-- ●●● Chose Redis over Postgres for sub-millisecond read latency in memoryOS  *(< 1h ago)*
-
+- *(No project decisions stored yet)*
 
 ## How I Work
 
@@ -44,6 +34,7 @@
 
 - Use the `recall` memory tool to search for additional context before answering.
 - Use the `remember` tool to store new facts the developer shares.
+- When the user shares multiple pieces of information in a single message, break them down into separate ATOMIC facts and pass them all at once in the `facts` array.
 - Use `get_my_profile` and `get_project_context` tools at the start of each session.
 - When you detect a contradiction with stored context, raise it explicitly.
 - Confidence scores decay over time — lower scores mean older/less certain facts.
