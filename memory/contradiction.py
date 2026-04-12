@@ -5,8 +5,15 @@ import time
 import redis.asyncio as aioredis
 from openai import AsyncOpenAI
 
-from .episodic import retrieve_memories, update_memory_confidence
-from .models import ContradictionEvent
+from .decay import reinforce_memory
+from .audit import log_event
+from .episodic import (
+    add_memory,
+    get_memory_by_id,
+    retrieve_memories,
+    update_memory_fields,
+)
+from .models import ContradictionEvent, MemoryEntry
 
 openai_client = AsyncOpenAI()
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
@@ -43,7 +50,13 @@ async def check_contradiction(
     Threshold: 0.75 confidence to surface to user.
     """
     # Search including low-confidence memories (they could still conflict)
-    similar = await retrieve_memories(new_fact, agent_id, k=5, min_confidence=0.0)
+    similar = await retrieve_memories(
+        new_fact,
+        agent_id,
+        k=5,
+        min_confidence=0.0,
+        active_only=True,
+    )
 
     if not similar:
         return None
@@ -113,12 +126,63 @@ async def resolve_contradiction(event_id: str, chosen_fact: str, agent_id: str) 
         return
 
     event = ContradictionEvent.model_validate_json(raw)
+    if event.resolution != "pending":
+        return
+
     event.resolution = "user_resolved"
     event.chosen_fact = chosen_fact
     event.resolved_at = time.time()
 
-    await r.set(f"contradiction:{event_id}", event.model_dump_json())
+    conflicting = await get_memory_by_id(event.conflicting_memory_id)
+    now = time.time()
 
-    # Prune the conflicting memory if the new fact wins
     if chosen_fact == event.new_fact:
-        await update_memory_confidence(event.conflicting_memory_id, 0.0)
+        next_version = (conflicting.version + 1) if conflicting else 1
+        new_entry = MemoryEntry(
+            agent_id=agent_id,
+            content=event.new_fact,
+            layer="episodic",
+            source="user_said",
+            category=conflicting.category if conflicting else "general",
+            decay_rate=conflicting.decay_rate if conflicting else 0.05,
+            supersedes_id=event.conflicting_memory_id,
+            version=next_version,
+            valid_from=now,
+        )
+        new_id = await add_memory(new_entry)
+        event.chosen_memory_id = new_id
+        event.superseded_memory_id = event.conflicting_memory_id
+
+        if conflicting:
+            await update_memory_fields(
+                event.conflicting_memory_id,
+                {
+                    "is_active": 0,
+                    "valid_to": now,
+                    "superseded_by_id": new_id,
+                    "confidence": 0.0,
+                },
+            )
+        await log_event(
+            agent_id,
+            "contradiction_resolved",
+            {"event_id": event.id, "chosen": "new", "memory_id": new_id},
+        )
+    else:
+        if conflicting:
+            reinforce_memory(conflicting)
+            await update_memory_fields(
+                event.conflicting_memory_id,
+                {
+                    "last_reinforced": now,
+                    "confidence": conflicting.confidence,
+                },
+            )
+            event.chosen_memory_id = event.conflicting_memory_id
+        await log_event(
+            agent_id,
+            "contradiction_resolved",
+            {"event_id": event.id, "chosen": "old", "memory_id": event.conflicting_memory_id},
+        )
+
+    await r.set(f"contradiction:{event_id}", event.model_dump_json())

@@ -33,6 +33,13 @@ class MemoryEntry(BaseModel):
     # task_context:     0.1    (fast — hours, current work)
     decay_rate: float = 0.05
     embedding: Optional[list[float]] = None
+    valid_from: float = Field(default_factory=time.time)
+    valid_to: Optional[float] = None
+    supersedes_id: Optional[str] = None
+    superseded_by_id: Optional[str] = None
+    is_active: bool = True
+    version: int = 1
+    expires_at: Optional[float] = None
 
 
 class WorkingMemory(BaseModel):
@@ -56,6 +63,8 @@ class ContradictionEvent(BaseModel):
     explanation: str
     resolution: Literal["pending", "user_resolved", "auto_resolved"] = "pending"
     chosen_fact: Optional[str] = None
+    chosen_memory_id: Optional[str] = None
+    superseded_memory_id: Optional[str] = None
     created_at: float = Field(default_factory=time.time)
     resolved_at: Optional[float] = None
 
@@ -85,6 +94,13 @@ if IndexSchema:
                 {"name": "decay_rate", "type": "numeric"},
                 {"name": "created_at", "type": "numeric"},
                 {"name": "last_reinforced", "type": "numeric"},
+                {"name": "valid_from", "type": "numeric"},
+                {"name": "valid_to", "type": "numeric"},
+                {"name": "expires_at", "type": "numeric"},
+                {"name": "supersedes_id", "type": "tag"},
+                {"name": "superseded_by_id", "type": "tag"},
+                {"name": "is_active", "type": "numeric"},
+                {"name": "version", "type": "numeric"},
                 {
                     "name": "embedding",
                     "type": "vector",
