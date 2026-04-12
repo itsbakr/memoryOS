@@ -121,7 +121,8 @@ function Section({
   );
 }
 
-export function DeveloperProfile({ agentId = 'demo-agent' }: { agentId?: string }) {
+export function DeveloperProfile({ initialAgentId = 'claude-code' }: { initialAgentId?: string }) {
+  const [agentId, setAgentId] = useState(initialAgentId);
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
@@ -140,7 +141,11 @@ export function DeveloperProfile({ agentId = 'demo-agent' }: { agentId?: string 
   };
 
   useEffect(() => {
+    setLoading(true);
     fetchSnapshot();
+  }, [agentId]);
+
+  useEffect(() => {
     const interval = setInterval(() => {
       if (!document.hidden) fetchSnapshot();
     }, 10000);
@@ -167,14 +172,19 @@ export function DeveloperProfile({ agentId = 'demo-agent' }: { agentId?: string 
 
   return (
     <div className="flex-1 overflow-y-auto">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-4">
-        <p className="text-[10px] text-gray-600 font-mono">
-          agent: {snapshot.agent_id}
-        </p>
+      {/* Header with Agent Toggle */}
+      <div className="flex items-center justify-between mb-4 bg-[#212121] p-2 rounded-lg border border-[#333]">
+        <select 
+          value={agentId}
+          onChange={(e) => setAgentId(e.target.value)}
+          className="bg-transparent text-[11px] text-gray-300 font-medium focus:outline-none cursor-pointer w-full"
+        >
+          <option value="claude-code">🤖 claude-code</option>
+          <option value="demo-agent">💬 demo-agent (Chat UI)</option>
+        </select>
         <button
           onClick={fetchSnapshot}
-          className="p-1 hover:bg-[#2f2f2f] rounded text-gray-500 hover:text-gray-300 transition"
+          className="p-1 ml-2 hover:bg-[#2f2f2f] rounded text-gray-500 hover:text-gray-300 transition shrink-0"
           title="Refresh"
         >
           <RefreshCw size={12} />

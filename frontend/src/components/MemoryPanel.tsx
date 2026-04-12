@@ -9,18 +9,22 @@ type Tab = 'memory' | 'profile';
 export function MemoryPanel({ isOpen, toggle }: { isOpen: boolean; toggle: () => void }) {
   const [stats, setStats] = useState<any>(null);
   const [activeTab, setActiveTab] = useState<Tab>('memory');
+  const [agentId, setAgentId] = useState<string>('claude-code');
 
   useEffect(() => {
     fetchStats();
+  }, [agentId]);
+
+  useEffect(() => {
     const interval = setInterval(() => {
       if (!document.hidden) fetchStats();
     }, 5000);
     return () => clearInterval(interval);
-  }, []);
+  }, [agentId]);
 
   const fetchStats = async () => {
     try {
-      const res = await fetch('/api/memory/stats?agent_id=demo-agent');
+      const res = await fetch(`/api/memory/stats?agent_id=${agentId}`);
       const data = await res.json();
       setStats(data);
     } catch (e) {
@@ -88,6 +92,18 @@ export function MemoryPanel({ isOpen, toggle }: { isOpen: boolean; toggle: () =>
       {/* ── Tab: Live Memory (original view) ── */}
       {activeTab === 'memory' && (
         <>
+          {/* Agent Dropdown */}
+          <div className="flex items-center justify-between mb-4 bg-[#212121] p-2 rounded-lg border border-[#333]">
+            <select 
+              value={agentId}
+              onChange={(e) => setAgentId(e.target.value)}
+              className="bg-transparent text-[11px] text-gray-300 font-medium focus:outline-none cursor-pointer w-full"
+            >
+              <option value="claude-code">🤖 claude-code</option>
+              <option value="demo-agent">💬 demo-agent (Chat UI)</option>
+            </select>
+          </div>
+
           {/* Token Savings */}
           <div className="mb-6 p-4 rounded-xl bg-emerald-950/20 border border-emerald-900/30 flex items-center justify-between">
             <div className="text-emerald-500 font-medium flex items-center gap-2">
@@ -187,7 +203,7 @@ export function MemoryPanel({ isOpen, toggle }: { isOpen: boolean; toggle: () =>
 
       {/* ── Tab: Developer Profile (new view) ── */}
       {activeTab === 'profile' && (
-        <DeveloperProfile agentId="demo-agent" />
+        <DeveloperProfile initialAgentId={agentId} />
       )}
     </aside>
   );
