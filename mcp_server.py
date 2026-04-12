@@ -255,10 +255,23 @@ def _tool_remember(args: dict) -> str:
         
         if "error" in resp:
             results.append(f"Failed to store: '{content[:30]}...' ({resp['error']})")
-        else:
+            continue
+
+        status = resp.get("status")
+        if status == "stored":
             success_count += 1
             cat = resp.get("category", "general")
             results.append(f"Stored [{cat}]: {content}")
+            continue
+
+        if status == "contradiction_detected":
+            results.append(
+                "Conflict detected: "
+                f"'{resp.get('new_fact')}' vs '{resp.get('conflicts_with')}'."
+            )
+            continue
+
+        results.append(f"Skipped: '{content[:30]}...' ({resp.get('reason', 'unknown')})")
             
     summary = f"Remembered {success_count}/{len(facts)} facts.\n"
     return summary + "\n".join(results)

@@ -1,7 +1,8 @@
-from memory.contradiction import check_contradiction, resolve_contradiction
-from memory.episodic import add_memory, retrieve_memories
+from memory.contradiction import resolve_contradiction
+from memory.retrieval import hybrid_retrieve
 from memory.models import MemoryEntry, WorkingMemory
 from memory.working import set_working_memory
+from memory.write_gate import write_memory_entries
 import time
 
 # Tool definitions in OpenAI format
@@ -99,32 +100,23 @@ async def handle_tool_call(tool_name: str, tool_args: dict, agent_id: str) -> di
     """Dispatch tool calls from Codex to memory functions."""
 
     if tool_name == "store_memory":
-        # FIRST: check for contradiction before storing
-        contradiction = await check_contradiction(tool_args["content"], agent_id)
-        if contradiction:
-            return {
-                "status": "contradiction_detected",
-                "contradiction_id": contradiction.id,
-                "new_fact": contradiction.new_fact,
-                "conflicts_with": contradiction.conflicting_memory_content,
-                "confidence_score": contradiction.confidence_score,
-                "explanation": contradiction.explanation,
-                "action_required": "Ask user which is correct before storing.",
-            }
-
         mem = MemoryEntry(
             agent_id=agent_id,
             content=tool_args["content"],
             layer="episodic",
             source=tool_args["source"],
         )
-        mem_id = await add_memory(mem)
-        return {"status": "stored", "memory_id": mem_id}
+        results = await write_memory_entries([mem], conflict_policy="surface")
+        result = results[0] if results else {"status": "skipped", "reason": "empty_content"}
+        if result["status"] == "contradiction_detected":
+            result["action_required"] = "Ask user which is correct before storing."
+        return result
 
     elif tool_name == "retrieve_memory":
-        memories = await retrieve_memories(
-            query=tool_args["query"],
-            agent_id=agent_id,
+        memories, _provenance = await hybrid_retrieve(
+            tool_args["query"],
+            agent_id,
+            k=8,
             min_confidence=tool_args.get("min_confidence", 0.3),
         )
         return {

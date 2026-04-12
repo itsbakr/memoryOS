@@ -3,9 +3,10 @@ import json
 
 from openai import AsyncOpenAI
 from sandbox.checkpoint import auto_checkpoint_loop, checkpoint, resume
-from memory.episodic import retrieve_memories
+from memory.retrieval import hybrid_retrieve
 from memory.working import get_working_memory
 from memory.extractor import extract_facts
+from memory.write_gate import write_memory_entries
 from agent.tools import MEMORY_TOOLS, handle_tool_call
 
 openai_client = AsyncOpenAI()
@@ -43,13 +44,10 @@ async def run_agent(
     working = await get_working_memory(agent_id)
     task_context = working.task if working else "no active task"
     extracted_facts = await extract_facts(user_message, task_context, agent_id)
-    for fact in extracted_facts:
-        from memory.episodic import add_memory
-
-        await add_memory(fact)
+    await write_memory_entries(extracted_facts, conflict_policy="skip")
 
     # Inject relevant memory context into the message
-    memories = await retrieve_memories(user_message, agent_id, k=5)
+    memories, provenance = await hybrid_retrieve(user_message, agent_id, k=5)
     memory_context = ""
     if memories:
         memory_lines = "\\n".join(
@@ -104,7 +102,7 @@ async def run_agent(
         if getattr(item, "type", None) == "message" and getattr(item, "content", None):
             output_text += item.content[0].text
 
-    return output_text, response.id, contradiction_event
+    return output_text, response.id, contradiction_event, provenance
 
 
 async def interactive_session(agent_id: str = "demo-agent"):
@@ -137,7 +135,7 @@ async def interactive_session(agent_id: str = "demo-agent"):
             print()
             continue
 
-        response, previous_response_id, contradiction = await run_agent(
+        response, previous_response_id, contradiction, _provenance = await run_agent(
             agent_id, user_input, previous_response_id
         )
 

@@ -11,6 +11,7 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from agent.loop import run_agent
+from memory.audit import fetch_events, fetch_metrics
 from memory.categories import (
     PROFILE_CATEGORIES,
     PROJECT_CATEGORIES,
@@ -18,10 +19,13 @@ from memory.categories import (
 )
 from memory.contradiction import resolve_contradiction
 from memory.decay import calculate_current_confidence
-from memory.episodic import add_memory, retrieve_memories
+from memory.episodic import get_memory_by_id, list_memory_ids, retrieve_memories, update_memory_fields
+from memory.graph import graph_stats
+from memory.retrieval import hybrid_retrieve
 from memory.extractor import extract_facts
-from memory.models import MemoryEntry
-from memory.working import get_working_memory
+from memory.models import MemoryEntry, WorkingMemory
+from memory.working import get_working_memory, set_working_memory
+from memory.write_gate import write_memory_entries
 
 app = FastAPI(title="Temporal Memory OS")
 app.add_middleware(
@@ -52,6 +56,14 @@ class StoreRequest(BaseModel):
     content: str
     category: str = "general"
     source: str = "user_said"
+
+
+class WorkingRequest(BaseModel):
+    agent_id: str
+    task: str
+    progress_pct: float = 0.0
+    last_action: str = ""
+    subtask: Optional[str] = None
 
 
 import os
@@ -124,7 +136,7 @@ async def chat(request: ChatRequest):
 
     # Run the agent
     try:
-        reply_text, new_response_id, contradiction = await run_agent(
+        reply_text, new_response_id, contradiction, provenance = await run_agent(
             agent_id=agent_id,
             user_message=request.message,
             previous_response_id=previous_response_id
@@ -137,12 +149,16 @@ async def chat(request: ChatRequest):
         await r.hset(f"session:{request.session_id}", "previous_response_id", new_response_id)
         
     # Store agent reply in history
-    await r.rpush(f"session_history:{request.session_id}", json.dumps({"role": "agent", "content": reply_text}))
+    await r.rpush(
+        f"session_history:{request.session_id}",
+        json.dumps({"role": "agent", "content": reply_text, "provenance": provenance}),
+    )
 
     return {
         "reply": reply_text,
         "response_id": new_response_id,
-        "contradiction": contradiction
+        "contradiction": contradiction,
+        "provenance": provenance,
     }
 
 
@@ -170,6 +186,7 @@ async def memory_stats(agent_id: str = DEFAULT_AGENT):
         agent_id,
         k=50,
         min_confidence=0.0,  # get all including stale
+        active_only=False,
     )
 
     working = await get_working_memory(agent_id)
@@ -198,6 +215,10 @@ async def memory_stats(agent_id: str = DEFAULT_AGENT):
                 "source": m.source,
                 "category": m.category or "general",
                 "age_hours": round((time.time() - m.created_at) / 3600, 1),
+                "is_active": m.is_active,
+                "version": m.version,
+                "supersedes_id": m.supersedes_id,
+                "superseded_by_id": m.superseded_by_id,
             }
             for m in sorted(
                 memories, key=lambda x: calculate_current_confidence(x), reverse=True
@@ -227,8 +248,22 @@ async def memory_store(request: StoreRequest):
         category=request.category,
         decay_rate=decay_rate_for(request.category),
     )
-    memory_id = await add_memory(mem)
-    return {"status": "ok", "memory_id": memory_id, "category": request.category}
+    results = await write_memory_entries([mem], conflict_policy="surface")
+    result = results[0] if results else {"status": "skipped", "reason": "empty_content"}
+    return result
+
+
+@app.post("/api/memory/working")
+async def memory_working(request: WorkingRequest):
+    working = WorkingMemory(
+        agent_id=request.agent_id,
+        task=request.task,
+        subtask=request.subtask,
+        progress_pct=request.progress_pct,
+        last_action=request.last_action,
+    )
+    await set_working_memory(working)
+    return {"status": "ok"}
 
 
 @app.get("/api/memory/search")
@@ -238,7 +273,9 @@ async def memory_search(query: str, agent_id: str = DEFAULT_AGENT, limit: int = 
     Used by the MCP recall tool for meaningful context retrieval.
     """
     limit = min(limit, 20)
-    memories = await retrieve_memories(query, agent_id, k=limit, min_confidence=0.05)
+    memories, _provenance = await hybrid_retrieve(
+        query, agent_id, k=limit, min_confidence=0.05
+    )
     return {
         "query": query,
         "results": [
@@ -252,6 +289,64 @@ async def memory_search(query: str, agent_id: str = DEFAULT_AGENT, limit: int = 
             for m in memories
         ],
     }
+
+
+@app.get("/api/memory/graph/stats")
+async def graph_memory_stats(agent_id: str = DEFAULT_AGENT):
+    return await graph_stats(agent_id)
+
+
+@app.get("/api/memory/export")
+async def memory_export(agent_id: str = DEFAULT_AGENT, include_inactive: bool = False):
+    memory_ids = await list_memory_ids(agent_id, limit=2000)
+    export_items = []
+    for memory_id in memory_ids:
+        mem = await get_memory_by_id(memory_id)
+        if not mem:
+            continue
+        if not include_inactive and not mem.is_active:
+            continue
+        export_items.append(mem.model_dump())
+    return {"agent_id": agent_id, "count": len(export_items), "memories": export_items}
+
+
+@app.delete("/api/memory/{memory_id}")
+async def memory_delete(memory_id: str, agent_id: str = DEFAULT_AGENT):
+    mem = await get_memory_by_id(memory_id)
+    if not mem or mem.agent_id != agent_id:
+        raise HTTPException(status_code=404, detail="Memory not found")
+    now = time.time()
+    await update_memory_fields(
+        memory_id,
+        {
+            "is_active": 0,
+            "valid_to": now,
+            "confidence": 0.0,
+        },
+    )
+    return {"status": "deleted", "memory_id": memory_id}
+
+
+@app.get("/api/memory/audit")
+async def memory_audit(agent_id: str = DEFAULT_AGENT, limit: int = 50):
+    events = await fetch_events(agent_id, limit=min(limit, 200))
+    return {"agent_id": agent_id, "events": events}
+
+
+@app.get("/api/memory/metrics")
+async def memory_metrics(agent_id: str = DEFAULT_AGENT):
+    metrics = await fetch_metrics(agent_id)
+    return {"agent_id": agent_id, "metrics": metrics}
+
+
+@app.get("/api/health")
+async def health_check():
+    r = await get_redis()
+    try:
+        pong = await r.ping()
+    except Exception:
+        pong = False
+    return {"status": "ok" if pong else "degraded", "redis": bool(pong), "timestamp": time.time()}
 
 
 @app.get("/api/contradictions")
@@ -304,6 +399,10 @@ async def context_snapshot(agent_id: str = DEFAULT_AGENT):
                 "source": m.source,
                 "confidence": round(live_conf, 3),
                 "age_hours": round((time.time() - m.created_at) / 3600, 1),
+                "is_active": m.is_active,
+                "version": m.version,
+                "supersedes_id": m.supersedes_id,
+                "superseded_by_id": m.superseded_by_id,
             })
         # Sort by confidence descending
         items.sort(key=lambda x: x["confidence"], reverse=True)
@@ -326,14 +425,13 @@ async def context_ingest(request: IngestRequest):
     Called by the Cursor post-conversation hook after each session ends.
     """
     facts = await extract_facts(request.transcript, request.task_context, request.agent_id)
-    stored_ids = []
-    for fact in facts:
-        memory_id = await add_memory(fact)
-        stored_ids.append(memory_id)
+    results = await write_memory_entries(facts, conflict_policy="skip")
+    stored_ids = [r["memory_id"] for r in results if r.get("status") == "stored"]
     return {
         "status": "ok",
         "stored": len(stored_ids),
         "memory_ids": stored_ids,
+        "skipped": len([r for r in results if r.get("status") != "stored"]),
     }
 
 # Setup React Frontend distribution serving
