@@ -50,16 +50,16 @@ flowchart LR
     
     %% Storage
     version --> episodic[(Episodic Vector Store)]
-    version --> graph[(Entity Graph Store)]
+    version --> graphStore[(Entity Graph Store)]
     
     %% Retrieval
     query[Agent Query] --> planner[Hybrid Retrieval Planner]
     planner --> episodic
-    planner --> graph
+    planner --> graphStore
     
     %% Ranking and Output
     episodic --> rank[Fusion & Re-rank]
-    graph --> rank
+    graphStore --> rank
     rank --> context[Prompt Context\nwith Provenance]
     context --> agent[Agent Response]
     
@@ -69,7 +69,7 @@ flowchart LR
     classDef highlight fill:#4f46e5,stroke:#4338ca,color:#fff
     
     class extract,writeGate,contra,resolver,planner,rank,context process;
-    class episodic,graph storage;
+    class episodic,graphStore storage;
     class userMsg,agent,query highlight;
 ```
 
